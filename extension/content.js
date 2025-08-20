@@ -1,0 +1,578 @@
+// content.js - Runs on LeetCode problem pages
+class LeetCodeTracker {
+  constructor() {
+    this.startTime = null;
+    this.currentProblem = null;
+    this.isTracking = false;
+    this.hasAskedPermission = false;
+    this.userOptedIn = false;
+    
+    this.init();
+  }
+
+  init() {
+    // Wait for page to fully load
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => this.checkAndShowPermission());
+    } else {
+      this.checkAndShowPermission();
+    }
+  }
+
+  async checkAndShowPermission() {
+    // Check if user has already made a choice for this session
+    try {
+      const result = await chrome.storage.local.get(['trackingPermissionAsked', 'autoStartTracking']);
+      
+      // If user has already been asked and chose auto-start, start immediately
+      if (result.autoStartTracking) {
+        this.userOptedIn = true;
+        this.startTracking();
+        return;
+      }
+      
+      // If never asked before, show the permission dialog
+      if (!result.trackingPermissionAsked) {
+        this.showPermissionDialog();
+      }
+    } catch (error) {
+      console.error('Error checking permission:', error);
+      this.showPermissionDialog(); // Fallback to showing dialog
+    }
+  }
+
+  showPermissionDialog() {
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'leetcode-tracker-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 999999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    `;
+
+    // Create dialog
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      max-width: 450px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      text-align: center;
+    `;
+
+    dialog.innerHTML = `
+      <div style="margin-bottom: 20px;">
+        <div style="font-size: 48px; margin-bottom: 15px;">🚀</div>
+        <h2 style="margin: 0 0 10px 0; color: #333; font-size: 24px;">LeetCode Practice Tracker</h2>
+        <p style="color: #666; margin: 0; font-size: 16px;">Track your coding practice automatically</p>
+      </div>
+      
+      <div style="text-align: left; margin: 20px 0; color: #555; font-size: 14px;">
+        <p><strong>This extension will:</strong></p>
+        <ul style="margin: 10px 0; padding-left: 20px;">
+          <li>⏱️ Track time spent on problems</li>
+          <li>📝 Log your attempts and results</li>
+          <li>💾 Store data locally in your browser</li>
+          <li>📊 Show your progress in the popup</li>
+        </ul>
+      </div>
+      
+      <div style="margin-top: 25px;">
+        <button id="start-tracking-btn" style="
+          background: #2196F3;
+          color: white;
+          border: none;
+          padding: 12px 24px;
+          border-radius: 6px;
+          font-size: 16px;
+          font-weight: 600;
+          cursor: pointer;
+          margin-right: 10px;
+        ">Start Tracking</button>
+        
+        <button id="not-now-btn" style="
+          background: #f5f5f5;
+          color: #666;
+          border: none;
+          padding: 12px 24px;
+          border-radius: 6px;
+          font-size: 16px;
+          cursor: pointer;
+          margin-right: 10px;
+        ">Not Now</button>
+        
+        <button id="always-track-btn" style="
+          background: #4CAF50;
+          color: white;
+          border: none;
+          padding: 12px 24px;
+          border-radius: 6px;
+          font-size: 16px;
+          cursor: pointer;
+        ">Always Track</button>
+      </div>
+      
+      <p style="font-size: 12px; color: #999; margin-top: 15px;">
+        You can change this setting anytime in the extension popup
+      </p>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // Add button event listeners
+    document.getElementById('start-tracking-btn').addEventListener('click', () => {
+      this.handlePermissionChoice('once');
+    });
+
+    document.getElementById('not-now-btn').addEventListener('click', () => {
+      this.handlePermissionChoice('no');
+    });
+
+    document.getElementById('always-track-btn').addEventListener('click', () => {
+      this.handlePermissionChoice('always');
+    });
+
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        this.handlePermissionChoice('no');
+      }
+    });
+  }
+
+  async handlePermissionChoice(choice) {
+    // Remove the dialog
+    const overlay = document.getElementById('leetcode-tracker-overlay');
+    if (overlay) {
+      overlay.remove();
+    }
+
+    try {
+      // Save the user's choice
+      await chrome.storage.local.set({ 
+        trackingPermissionAsked: true,
+        autoStartTracking: choice === 'always'
+      });
+
+      if (choice === 'once' || choice === 'always') {
+        this.userOptedIn = true;
+        this.startTracking();
+        
+        if (choice === 'always') {
+          this.showNotification('✅ Auto-tracking enabled for future visits!', '#4CAF50');
+        }
+      } else {
+        this.showNotification('❌ Tracking disabled for this session', '#ff9800');
+      }
+    } catch (error) {
+      console.error('Error saving permission choice:', error);
+    }
+  }
+
+  extractProblemInfo() {
+    // Try multiple selectors for problem title (LeetCode changes these frequently)
+    const titleSelectors = [
+      'h1[data-cy="question-title"]',
+      'div[data-cy="question-title"]', 
+      '.css-v3d350',
+      'h1.text-title-large',
+      'div.text-title-large',
+      'h1',
+      '.question-title h1',
+      '[class*="title"]'
+    ];
+    
+    let titleElement = null;
+    for (const selector of titleSelectors) {
+      titleElement = document.querySelector(selector);
+      if (titleElement && titleElement.textContent.trim()) break;
+    }
+    
+    // Extract difficulty with more selectors
+    const difficultySelectors = [
+      'div[diff]',
+      '[class*="difficulty"]',
+      '.text-difficulty-easy, .text-difficulty-medium, .text-difficulty-hard',
+      '[data-degree]',
+      '.text-olive, .text-yellow, .text-pink',  // LeetCode's difficulty colors
+      '.text-green, .text-orange, .text-red',   // Alternative colors
+      '[class*="easy"], [class*="medium"], [class*="hard"]',
+      'span:contains("Easy"), span:contains("Medium"), span:contains("Hard")'
+    ];
+    
+    let difficultyElement = null;
+    for (const selector of difficultySelectors) {
+      // Skip selectors with :contains() as they're not valid
+      if (selector.includes(':contains')) continue;
+      
+      difficultyElement = document.querySelector(selector);
+      if (difficultyElement && difficultyElement.textContent.trim()) {
+        console.log('LeetCode Tracker: Found difficulty element:', difficultyElement, 'text:', difficultyElement.textContent);
+        break;
+      }
+    }
+    
+    // Extract tags
+    const tagElements = document.querySelectorAll('a[href*="/tag/"], .topic-tag, [class*="tag"]');
+    
+    // Try to get title from URL if element not found
+    let title = 'Unknown Problem';
+    if (titleElement && titleElement.textContent.trim()) {
+      title = titleElement.textContent.trim();
+    } else {
+      // Extract from URL as fallback
+      const urlMatch = window.location.pathname.match(/\/problems\/([^\/]+)/);
+      if (urlMatch) {
+        title = urlMatch[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      }
+    }
+    
+    this.currentProblem = {
+      title,
+      difficulty: this.parseDifficulty(difficultyElement),
+      tags: Array.from(tagElements).map(el => el.textContent.trim()).filter(tag => tag.length > 0 && tag.length < 30),
+      url: window.location.href
+    };
+    
+    console.log('LeetCode Tracker: Extracted problem info:', this.currentProblem);
+  }
+
+  parseDifficulty(element) {
+    if (!element) {
+      // Try to find difficulty by searching all text content
+      return this.findDifficultyInPage();
+    }
+    
+    const text = element.textContent.toLowerCase().trim();
+    const className = element.className.toLowerCase();
+    
+    // Check text content
+    if (text.includes('easy') || text === 'easy') return 'Easy';
+    if (text.includes('medium') || text === 'medium') return 'Medium';
+    if (text.includes('hard') || text === 'hard') return 'Hard';
+    
+    // Check class names
+    if (className.includes('easy')) return 'Easy';
+    if (className.includes('medium')) return 'Medium';
+    if (className.includes('hard')) return 'Hard';
+    
+    // Check specific LeetCode color classes
+    if (className.includes('text-olive') || className.includes('text-green')) return 'Easy';
+    if (className.includes('text-yellow') || className.includes('text-orange')) return 'Medium';
+    if (className.includes('text-pink') || className.includes('text-red')) return 'Hard';
+    
+    // Try parent element
+    if (element.parentElement) {
+      return this.parseDifficulty(element.parentElement);
+    }
+    
+    return this.findDifficultyInPage();
+  }
+
+  findDifficultyInPage() {
+    // Search through all elements for difficulty text
+    const allElements = document.querySelectorAll('*');
+    
+    for (const element of allElements) {
+      const text = element.textContent.toLowerCase().trim();
+      
+      // Look for exact matches in small elements (likely difficulty badges)
+      if (element.children.length === 0 && text.length < 10) {
+        if (text === 'easy') return 'Easy';
+        if (text === 'medium') return 'Medium'; 
+        if (text === 'hard') return 'Hard';
+      }
+      
+      // Look for elements with difficulty in class names
+      const className = element.className.toLowerCase();
+      if (className.includes('difficulty')) {
+        if (text.includes('easy') || className.includes('easy')) return 'Easy';
+        if (text.includes('medium') || className.includes('medium')) return 'Medium';
+        if (text.includes('hard') || className.includes('hard')) return 'Hard';
+      }
+    }
+    
+    // Try to find by common color patterns
+    const colorElements = document.querySelectorAll(
+      '.text-olive, .text-green, .text-yellow, .text-orange, .text-pink, .text-red, ' +
+      '[style*="color"], [class*="color"]'
+    );
+    
+    for (const element of colorElements) {
+      const text = element.textContent.toLowerCase().trim();
+      if (text === 'easy' || text === 'medium' || text === 'hard') {
+        return text.charAt(0).toUpperCase() + text.slice(1);
+      }
+    }
+    
+    console.log('LeetCode Tracker: Could not find difficulty, trying URL pattern');
+    return this.getDifficultyFromUrl();
+  }
+
+  getDifficultyFromUrl() {
+    // Some LeetCode URLs or page data might indicate difficulty
+    // This is a last resort - you could maintain a lookup table of known problems
+    const problemMatch = window.location.pathname.match(/\/problems\/([^\/]+)/);
+    if (problemMatch) {
+      const slug = problemMatch[1];
+      // For now, just return Unknown, but you could add a lookup table here
+      console.log('LeetCode Tracker: Problem slug:', slug, '- difficulty lookup not implemented');
+    }
+    
+    return 'Unknown';
+  }
+
+  startTimer() {
+    this.startTime = Date.now();
+    this.isTracking = true;
+  }
+
+  setupSubmitListener() {
+    // Look for submit button and add listener
+    this.observeSubmitButtons();
+    
+    // Also listen for navigation changes (SPA routing)
+    this.observeUrlChanges();
+  }
+
+  observeSubmitButtons() {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            this.attachSubmitListeners(node);
+          }
+        });
+      });
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    // Also check existing buttons
+    this.attachSubmitListeners(document);
+  }
+
+  attachSubmitListeners(container) {
+    // Look for submit buttons with multiple selectors
+    const submitSelectors = [
+      'button[data-e2e-locator="console-submit-button"]',
+      'button[data-e2e-locator*="submit"]',
+      '[data-cy="submit-code-btn"]',
+      'button[class*="submit"]',
+      'button[id*="submit"]'
+    ];
+    
+    let submitButtons = [];
+    for (const selector of submitSelectors) {
+      const buttons = container.querySelectorAll(selector);
+      submitButtons = [...submitButtons, ...Array.from(buttons)];
+    }
+
+    // Also look for buttons with text "Submit" or "Run"
+    const allButtons = container.querySelectorAll('button');
+    allButtons.forEach(button => {
+      const text = button.textContent.trim().toLowerCase();
+      if ((text === 'submit' || text.includes('submit')) && 
+          !button.hasAttribute('data-tracker-listener')) {
+        submitButtons.push(button);
+      }
+    });
+
+    // Add listeners to found buttons
+    submitButtons.forEach(button => {
+      if (!button.hasAttribute('data-tracker-listener')) {
+        button.setAttribute('data-tracker-listener', 'true');
+        button.addEventListener('click', () => {
+          console.log('LeetCode Tracker: Submit button clicked');
+          this.handleSubmit();
+        });
+        console.log('LeetCode Tracker: Added listener to submit button:', button);
+      }
+    });
+
+    console.log('LeetCode Tracker: Found', submitButtons.length, 'submit buttons');
+  }
+
+  handleSubmit() {
+    if (!this.isTracking || !this.startTime) {
+      console.log('LeetCode Tracker: Not tracking or no start time');
+      return;
+    }
+
+    console.log('LeetCode Tracker: Submit detected, will check result in 5 seconds');
+    const timeSpent = Date.now() - this.startTime;
+    
+    // Show immediate feedback
+    this.showNotification('⏱️ Tracking submission...', '#2196F3');
+    
+    // Wait longer for the result to appear (LeetCode can be slow)
+    setTimeout(() => {
+      this.checkResult(timeSpent);
+    }, 5000);
+  }
+
+  checkResult(timeSpent) {
+    const attempt = {
+      ...this.currentProblem,
+      timeSpent: Math.round(timeSpent / 1000), // in seconds
+      timestamp: new Date().toISOString(),
+      result: this.detectResult()
+    };
+
+    this.saveAttempt(attempt);
+    this.resetTracking();
+  }
+
+  detectResult() {
+    // Look for various result indicators with more comprehensive selectors
+    const elements = document.querySelectorAll('*');
+    
+    // Check for "Accepted" text first (most reliable)
+    for (const element of elements) {
+      const text = element.textContent.toLowerCase();
+      if (text.includes('accepted') && !text.includes('not accepted')) {
+        console.log('LeetCode Tracker: Found "Accepted" result');
+        return 'Accepted';
+      }
+    }
+    
+    // Check for failure indicators
+    const failureKeywords = [
+      'wrong answer',
+      'time limit exceeded', 
+      'runtime error',
+      'memory limit exceeded',
+      'output limit exceeded',
+      'compilation error'
+    ];
+    
+    for (const element of elements) {
+      const text = element.textContent.toLowerCase();
+      for (const keyword of failureKeywords) {
+        if (text.includes(keyword)) {
+          console.log('LeetCode Tracker: Found failure result:', keyword);
+          return 'Not Accepted';
+        }
+      }
+    }
+    
+    // Check for green/red colored elements that might indicate results
+    const coloredElements = document.querySelectorAll(
+      '.text-green, .text-red, .text-success, .text-danger, .text-error, ' +
+      '[class*="success"], [class*="error"], [class*="accepted"], [class*="wrong"]'
+    );
+    
+    for (const element of coloredElements) {
+      const text = element.textContent.toLowerCase();
+      if (text.includes('accepted') || text.includes('correct')) {
+        console.log('LeetCode Tracker: Found colored success element');
+        return 'Accepted';
+      }
+      if (text.includes('wrong') || text.includes('error') || text.includes('failed')) {
+        console.log('LeetCode Tracker: Found colored failure element');
+        return 'Not Accepted';
+      }
+    }
+
+    console.log('LeetCode Tracker: Could not detect result, marking as attempted');
+    return 'Attempted';
+  }
+
+  async saveAttempt(attempt) {
+    try {
+      // Get existing attempts
+      const result = await chrome.storage.local.get(['leetcodeAttempts']);
+      const attempts = result.leetcodeAttempts || [];
+      
+      // Add new attempt
+      attempts.push(attempt);
+      
+      // Save back to storage
+      await chrome.storage.local.set({ leetcodeAttempts: attempts });
+      
+      console.log('LeetCode Tracker: Saved attempt', attempt);
+      
+      // Show brief notification
+      this.showNotification(`Tracked: ${attempt.title} (${attempt.result})`);
+      
+    } catch (error) {
+      console.error('LeetCode Tracker: Error saving attempt', error);
+    }
+  }
+
+  showNotification(message, color = '#4CAF50') {
+    // Remove any existing notification first
+    const existing = document.querySelector('.leetcode-tracker-notification');
+    if (existing) existing.remove();
+    
+    const notification = document.createElement('div');
+    notification.className = 'leetcode-tracker-notification';
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: ${color};
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      z-index: 999999;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      max-width: 300px;
+      word-wrap: break-word;
+    `;
+    notification.textContent = message;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.style.opacity = '0';
+        notification.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => {
+          if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+          }
+        }, 300);
+      }
+    }, 4000);
+  }
+
+  resetTracking() {
+    this.startTime = null;
+    this.isTracking = false;
+  }
+
+  observeUrlChanges() {
+    let lastUrl = location.href;
+    new MutationObserver(() => {
+      const url = location.href;
+      if (url !== lastUrl) {
+        lastUrl = url;
+        if (url.includes('/problems/')) {
+          // New problem loaded, restart tracking
+          setTimeout(() => this.init(), 1000);
+        }
+      }
+    }).observe(document, { subtree: true, childList: true });
+  }
+}
+
+// Initialize tracker
+const tracker = new LeetCodeTracker();

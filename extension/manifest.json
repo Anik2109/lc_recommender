@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "LeetCode Practice Tracker",
+  "version": "1.0.0",
+  "description": "Automatically track your LeetCode practice sessions with minimal overhead",
+  
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  
+  "host_permissions": [
+    "*://leetcode.com/*"
+  ],
+  
+  "content_scripts": [
+    {
+      "matches": ["*://leetcode.com/problems/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LeetCode Practice Tracker"
+  },
+  
+  "background": {
+    "service_worker": "background.js"
+  }
+}
