@@ -10,7 +10,7 @@
   ],
   
   "host_permissions": [
-    "*://leetcode.com/*"
+    "https://leetcode.com/*"
   ],
   
   "content_scripts": [

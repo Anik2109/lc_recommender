@@ -180,120 +180,157 @@ class LeetCodeTracker {
     }
   }
 
-  extractProblemInfo() {
-    // Try multiple selectors for problem title (LeetCode changes these frequently)
-    const titleSelectors = [
-      'h1[data-cy="question-title"]',
-      'div[data-cy="question-title"]', 
-      '.css-v3d350',
-      'h1.text-title-large',
-      'div.text-title-large',
-      'h1',
-      '.question-title h1',
-      '[class*="title"]'
-    ];
-    
-    let titleElement = null;
-    for (const selector of titleSelectors) {
-      titleElement = document.querySelector(selector);
-      if (titleElement && titleElement.textContent.trim()) break;
+  async extractProblemInfo() {
+    // Try to extract slug from URL
+    const urlMatch = window.location.pathname.match(/\/problems\/([^\/]+)/);
+    let slug = null;
+    if (urlMatch) {
+      slug = urlMatch[1];
     }
-    
-    // Extract difficulty with more selectors
-    const difficultySelectors = [
-      'div[diff]',
-      '[class*="difficulty"]',
-      '.text-difficulty-easy, .text-difficulty-medium, .text-difficulty-hard',
-      '[data-degree]',
-      '.text-olive, .text-yellow, .text-pink',  // LeetCode's difficulty colors
-      '.text-green, .text-orange, .text-red',   // Alternative colors
-      '[class*="easy"], [class*="medium"], [class*="hard"]',
-      'span:contains("Easy"), span:contains("Medium"), span:contains("Hard")'
-    ];
-    
-    let difficultyElement = null;
-    for (const selector of difficultySelectors) {
-      // Skip selectors with :contains() as they're not valid
-      if (selector.includes(':contains')) continue;
-      
-      difficultyElement = document.querySelector(selector);
-      if (difficultyElement && difficultyElement.textContent.trim()) {
-        console.log('LeetCode Tracker: Found difficulty element:', difficultyElement, 'text:', difficultyElement.textContent);
-        break;
+    let usedApi = false;
+    if (slug) {
+      try {
+        // Query LeetCode GraphQL API
+        const query = `
+          query getQuestionDetail($titleSlug: String!) {
+            question(titleSlug: $titleSlug) {
+              title
+              difficulty
+              topicTags { name }
+            }
+          }
+        `;
+        const response = await fetch('https://leetcode.com/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query,
+            variables: { titleSlug: slug }
+          })
+        });
+        if (!response.ok) {
+          throw new Error(`GraphQL API HTTP error: ${response.status}`);
+        }
+        const data = await response.json();
+        if (data && data.data && data.data.question) {
+          const q = data.data.question;
+          this.currentProblem = {
+            title: q.title || (slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())),
+            difficulty: q.difficulty || 'Unknown',
+            tags: (q.topicTags || []).map(t => t.name),
+            url: window.location.href
+          };
+          usedApi = true;
+          console.log('LeetCode Tracker: Extracted problem info from API:', this.currentProblem);
+        }
+      } catch (err) {
+        console.error('LeetCode Tracker: Error fetching problem info from API:', err);
       }
     }
-    
-    // Extract tags
-    const tagElements = document.querySelectorAll('a[href*="/tag/"], .topic-tag, [class*="tag"]');
-    
-    // Try to get title from URL if element not found
-    let title = 'Unknown Problem';
-    if (titleElement && titleElement.textContent.trim()) {
-      title = titleElement.textContent.trim();
-    } else {
-      // Extract from URL as fallback
-      const urlMatch = window.location.pathname.match(/\/problems\/([^\/]+)/);
-      if (urlMatch) {
-        title = urlMatch[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    if (!usedApi) {
+      // Fallback to old DOM scraping logic
+      // Try multiple selectors for problem title (LeetCode changes these frequently)
+      const titleSelectors = [
+        'h1[data-cy="question-title"]',
+        'div[data-cy="question-title"]', 
+        '.css-v3d350',
+        'h1.text-title-large',
+        'div.text-title-large',
+        'h1',
+        '.question-title h1',
+        '[class*="title"]'
+      ];
+      let titleElement = null;
+      for (const selector of titleSelectors) {
+        titleElement = document.querySelector(selector);
+        if (titleElement && titleElement.textContent.trim()) break;
       }
+      // Extract difficulty with more selectors
+      const difficultySelectors = [
+        'div[diff]',
+        '[class*="difficulty"]',
+        '.text-difficulty-easy, .text-difficulty-medium, .text-difficulty-hard',
+        '[data-degree]',
+        '.text-olive, .text-yellow, .text-pink',
+        '.text-green, .text-orange, .text-red',
+        '[class*="easy"], [class*="medium"], [class*="hard"]',
+        'span:contains("Easy"), span:contains("Medium"), span:contains("Hard")'
+      ];
+      let difficultyElement = null;
+      for (const selector of difficultySelectors) {
+        if (selector.includes(':contains')) continue;
+        difficultyElement = document.querySelector(selector);
+        if (difficultyElement && difficultyElement.textContent.trim()) {
+          console.log('LeetCode Tracker: Found difficulty element:', difficultyElement, 'text:', difficultyElement.textContent);
+          break;
+        }
+      }
+      // Extract tags
+      const tagElements = document.querySelectorAll('a[href*="/tag/"], .topic-tag, [class*="tag"]');
+      // Try to get title from URL if element not found
+      let title = 'Unknown Problem';
+      if (titleElement && titleElement.textContent.trim()) {
+        title = titleElement.textContent.trim();
+      } else if (slug) {
+        title = slug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      }
+      this.currentProblem = {
+        title,
+        difficulty: this.parseDifficulty(difficultyElement),
+        tags: Array.from(tagElements).map(el => el.textContent.trim()).filter(tag => tag.length > 0 && tag.length < 30),
+        url: window.location.href
+      };
+      console.log('LeetCode Tracker: Extracted problem info (fallback):', this.currentProblem);
     }
-    
-    this.currentProblem = {
-      title,
-      difficulty: this.parseDifficulty(difficultyElement),
-      tags: Array.from(tagElements).map(el => el.textContent.trim()).filter(tag => tag.length > 0 && tag.length < 30),
-      url: window.location.href
-    };
-    
-    console.log('LeetCode Tracker: Extracted problem info:', this.currentProblem);
   }
 
   parseDifficulty(element) {
+    // If already have difficulty from API, use that
+    if (this.currentProblem && this.currentProblem.difficulty && this.currentProblem.difficulty !== 'Unknown') {
+      return this.currentProblem.difficulty;
+    }
     if (!element) {
       // Try to find difficulty by searching all text content
       return this.findDifficultyInPage();
     }
-    
     const text = element.textContent.toLowerCase().trim();
     const className = element.className.toLowerCase();
-    
     // Check text content
     if (text.includes('easy') || text === 'easy') return 'Easy';
     if (text.includes('medium') || text === 'medium') return 'Medium';
     if (text.includes('hard') || text === 'hard') return 'Hard';
-    
     // Check class names
     if (className.includes('easy')) return 'Easy';
     if (className.includes('medium')) return 'Medium';
     if (className.includes('hard')) return 'Hard';
-    
     // Check specific LeetCode color classes
     if (className.includes('text-olive') || className.includes('text-green')) return 'Easy';
     if (className.includes('text-yellow') || className.includes('text-orange')) return 'Medium';
     if (className.includes('text-pink') || className.includes('text-red')) return 'Hard';
-    
     // Try parent element
     if (element.parentElement) {
       return this.parseDifficulty(element.parentElement);
     }
-    
     return this.findDifficultyInPage();
   }
 
   findDifficultyInPage() {
+    // If already have difficulty from API, use that
+    if (this.currentProblem && this.currentProblem.difficulty && this.currentProblem.difficulty !== 'Unknown') {
+      return this.currentProblem.difficulty;
+    }
     // Search through all elements for difficulty text
     const allElements = document.querySelectorAll('*');
-    
     for (const element of allElements) {
       const text = element.textContent.toLowerCase().trim();
-      
       // Look for exact matches in small elements (likely difficulty badges)
       if (element.children.length === 0 && text.length < 10) {
         if (text === 'easy') return 'Easy';
         if (text === 'medium') return 'Medium'; 
         if (text === 'hard') return 'Hard';
       }
-      
       // Look for elements with difficulty in class names
       const className = element.className.toLowerCase();
       if (className.includes('difficulty')) {
@@ -302,20 +339,17 @@ class LeetCodeTracker {
         if (text.includes('hard') || className.includes('hard')) return 'Hard';
       }
     }
-    
     // Try to find by common color patterns
     const colorElements = document.querySelectorAll(
       '.text-olive, .text-green, .text-yellow, .text-orange, .text-pink, .text-red, ' +
       '[style*="color"], [class*="color"]'
     );
-    
     for (const element of colorElements) {
       const text = element.textContent.toLowerCase().trim();
       if (text === 'easy' || text === 'medium' || text === 'hard') {
         return text.charAt(0).toUpperCase() + text.slice(1);
       }
     }
-    
     console.log('LeetCode Tracker: Could not find difficulty, trying URL pattern');
     return this.getDifficultyFromUrl();
   }
@@ -336,6 +370,15 @@ class LeetCodeTracker {
   startTimer() {
     this.startTime = Date.now();
     this.isTracking = true;
+  }
+
+  startTracking() {
+    if (this.isTracking) return;
+    this.isTracking = true;
+    this.startTime = Date.now();
+    this.extractProblemInfo();
+    this.setupSubmitListener();
+    this.showNotification('🚀 Tracking started for this problem!', '#2196F3');
   }
 
   setupSubmitListener() {

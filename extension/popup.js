@@ -43,9 +43,22 @@ class PopupController {
   updateStats() {
     const totalAttempts = this.attempts.length;
     const acceptedCount = this.attempts.filter(a => a.result === 'Accepted').length;
+
+    // Compute how many attempts are solved today
+    const today = new Date();
+    const todaySolved = this.attempts.filter(a => {
+      if (a.result === 'Accepted' || a.result === 'Solved') {
+        const attemptDate = new Date(a.timestamp);
+        return attemptDate.getFullYear() === today.getFullYear() &&
+               attemptDate.getMonth() === today.getMonth() &&
+               attemptDate.getDate() === today.getDate();
+      }
+      return false;
+    }).length;
     
     document.getElementById('total-attempts').textContent = totalAttempts;
     document.getElementById('accepted-count').textContent = acceptedCount;
+    document.getElementById('today-solved-count').textContent = todaySolved;
   }
 
   renderAttempts() {

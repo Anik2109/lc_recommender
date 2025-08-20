@@ -31,40 +31,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // Save attempt to storage
-async function handleSaveAttempt(attemptData, sendResponse) {
-  try {
-    // Get existing attempts
-    const result = await chrome.storage.local.get(['leetcodeAttempts']);
+function handleSaveAttempt(attemptData, sendResponse) {
+  chrome.storage.local.get(['leetcodeAttempts']).then((result) => {
     const attempts = result.leetcodeAttempts || [];
     
-    // Add new attempt
     attempts.push({
       ...attemptData,
       id: generateId(),
       timestamp: new Date().toISOString()
     });
     
-    // Save back to storage
-    await chrome.storage.local.set({ leetcodeAttempts: attempts });
-    
+    return chrome.storage.local.set({ leetcodeAttempts: attempts });
+  }).then(() => {
     sendResponse({ success: true });
-  } catch (error) {
+  }).catch((error) => {
     console.error('Error saving attempt:', error);
     sendResponse({ success: false, error: error.message });
-  }
+  });
 }
 
 // Get all attempts from storage
-async function handleGetAttempts(sendResponse) {
-  try {
-    const result = await chrome.storage.local.get(['leetcodeAttempts']);
+function handleGetAttempts(sendResponse) {
+  chrome.storage.local.get(['leetcodeAttempts']).then((result) => {
     const attempts = result.leetcodeAttempts || [];
-    
     sendResponse({ success: true, attempts });
-  } catch (error) {
+  }).catch((error) => {
     console.error('Error getting attempts:', error);
     sendResponse({ success: false, error: error.message });
-  }
+  });
 }
 
 // Generate unique ID for attempts
@@ -82,9 +76,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 // Optional: Badge text to show attempt count
-async function updateBadge() {
-  try {
-    const result = await chrome.storage.local.get(['leetcodeAttempts']);
+function updateBadge() {
+  chrome.storage.local.get(['leetcodeAttempts']).then((result) => {
     const attempts = result.leetcodeAttempts || [];
     const count = attempts.length;
     
@@ -96,9 +89,9 @@ async function updateBadge() {
     } else {
       chrome.action.setBadgeText({ text: '' });
     }
-  } catch (error) {
+  }).catch((error) => {
     console.error('Error updating badge:', error);
-  }
+  });
 }
 
 // Update badge when storage changes
