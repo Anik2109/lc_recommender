@@ -626,19 +626,19 @@ class LeetCodeTracker {
     btn.textContent = 'Start Tracking';
     btn.style.cssText = `
       position: fixed;
-      bottom: 30px;
-      right: 30px;
+      bottom: 80px;
+      right: 40px;
       background: #2196F3;
       color: white;
       border: none;
-      border-radius: 50px;
-      padding: 16px 28px;
-      font-size: 16px;
+      border-radius: 20px;
+      padding: 8px 14px;
+      font-size: 12px;
       font-weight: 600;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
       cursor: pointer;
       z-index: 999999;
-      opacity: 0.93;
+      opacity: 0.9;
       transition: background 0.2s, opacity 0.2s;
     `;
     btn.addEventListener('mouseenter', () => {
@@ -646,7 +646,7 @@ class LeetCodeTracker {
       btn.style.background = '#1769aa';
     });
     btn.addEventListener('mouseleave', () => {
-      btn.style.opacity = '0.93';
+      btn.style.opacity = '0.9';
       btn.style.background = '#2196F3';
     });
     btn.addEventListener('click', () => {
