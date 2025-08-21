@@ -13,9 +13,13 @@ class LeetCodeTracker {
   init() {
     // Wait for page to fully load
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => this.checkAndShowPermission());
+      document.addEventListener('DOMContentLoaded', () => {
+        this.checkAndShowPermission();
+        this.createManualButton();
+      });
     } else {
       this.checkAndShowPermission();
+      this.createManualButton();
     }
   }
 
@@ -475,9 +479,7 @@ class LeetCodeTracker {
       timestamp: new Date().toISOString(),
       result: this.detectResult()
     };
-
-    this.saveAttempt(attempt);
-    this.resetTracking();
+    this.showConfirmPopup(attempt);
   }
 
   detectResult() {
@@ -614,6 +616,161 @@ class LeetCodeTracker {
         }
       }
     }).observe(document, { subtree: true, childList: true });
+  }
+
+  createManualButton() {
+    // Avoid duplicating the button
+    if (document.getElementById('manual-track-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'manual-track-btn';
+    btn.textContent = 'Start Tracking';
+    btn.style.cssText = `
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      background: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 50px;
+      padding: 16px 28px;
+      font-size: 16px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      cursor: pointer;
+      z-index: 999999;
+      opacity: 0.93;
+      transition: background 0.2s, opacity 0.2s;
+    `;
+    btn.addEventListener('mouseenter', () => {
+      btn.style.opacity = '1';
+      btn.style.background = '#1769aa';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.opacity = '0.93';
+      btn.style.background = '#2196F3';
+    });
+    btn.addEventListener('click', () => {
+      this.startTracking();
+      this.showNotification('🚀 Tracking started for this problem!', '#2196F3');
+    });
+    document.body.appendChild(btn);
+  }
+
+  showConfirmPopup(attempt) {
+    // Remove existing popup if present
+    const prev = document.getElementById('leetcode-track-confirm-overlay');
+    if (prev) prev.remove();
+    // Overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'leetcode-track-confirm-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.45);
+      z-index: 9999999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    `;
+    // Modal
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      background: #fff;
+      border-radius: 14px;
+      padding: 32px 28px 22px 28px;
+      box-shadow: 0 10px 32px rgba(0,0,0,0.25);
+      min-width: 320px;
+      max-width: 95vw;
+      text-align: center;
+    `;
+    // Build modal content
+    modal.innerHTML = `
+      <h2 style="margin-bottom: 10px; font-size: 22px; color: #222;">Track Attempt</h2>
+      <div style="margin-bottom: 14px;">
+        <strong>${attempt.title || 'LeetCode Problem'}</strong>
+      </div>
+      <div style="margin-bottom: 18px; color: #555;">
+        <span style="padding: 3px 10px; border-radius: 8px; background: #f5f5f5; font-size: 13px;">
+          Difficulty: <span id="confirm-diff">${attempt.difficulty || 'Unknown'}</span>
+        </span>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="font-size: 15px; color: #333; margin-right: 4px;">Time Spent (sec):</label>
+        <input type="number" id="confirm-time" min="1" value="${attempt.timeSpent || 0}" style="
+          width: 70px; padding: 4px 6px; border-radius: 4px; border: 1px solid #ccc; font-size: 15px; text-align: center;">
+      </div>
+      <div style="margin-bottom: 18px;">
+        <label style="font-size: 15px; color: #333; margin-right: 4px;">Result:</label>
+        <select id="confirm-result" style="padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 15px;">
+          <option value="Accepted"${attempt.result === 'Accepted' ? ' selected' : ''}>Accepted</option>
+          <option value="Not Accepted"${attempt.result === 'Not Accepted' ? ' selected' : ''}>Not Accepted</option>
+          <option value="Attempted"${attempt.result === 'Attempted' ? ' selected' : ''}>Attempted</option>
+        </select>
+      </div>
+      <div>
+        <button id="confirm-save-btn" style="
+          background: #2196F3;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          padding: 10px 20px;
+          font-size: 15px;
+          font-weight: 600;
+          cursor: pointer;
+          margin-right: 12px;
+        ">Save</button>
+        <button id="confirm-cancel-btn" style="
+          background: #eee;
+          color: #666;
+          border: none;
+          border-radius: 6px;
+          padding: 10px 20px;
+          font-size: 15px;
+          cursor: pointer;
+        ">Cancel</button>
+      </div>
+    `;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    // Button listeners
+    modal.querySelector('#confirm-save-btn').addEventListener('click', () => {
+      // Update attempt with edited values
+      const timeInput = modal.querySelector('#confirm-time');
+      const resultSel = modal.querySelector('#confirm-result');
+      let timeVal = parseInt(timeInput.value, 10);
+      if (isNaN(timeVal) || timeVal < 0) timeVal = attempt.timeSpent || 0;
+      attempt.timeSpent = timeVal;
+      attempt.result = resultSel.value;
+      this.saveAttempt(attempt);
+      this.resetTracking();
+      overlay.remove();
+    });
+    modal.querySelector('#confirm-cancel-btn').addEventListener('click', () => {
+      this.resetTracking();
+      overlay.remove();
+    });
+    // Allow closing with Escape key
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.resetTracking();
+        overlay.remove();
+      }
+    });
+    setTimeout(() => {
+      modal.querySelector('#confirm-time').focus();
+      overlay.tabIndex = -1;
+      overlay.focus();
+    }, 100);
+    // Prevent click outside from closing
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        // Optionally: do nothing or cancel
+      }
+    });
   }
 }
 
